@@ -103,6 +103,15 @@ impl PlaybackState {
         }
     }
 
+    fn queue(&mut self, track: SongDescription) {
+        self.source = PlaylistSource::None;
+        self.running_order.push(track.id.clone());
+        if let Some(shuffled) = self.running_order_shuffled.as_mut() {
+            shuffled.push(track.id.clone());
+        }
+        self.indexed_songs.insert(track.id.clone(), track);
+    }
+
     fn play(&mut self, id: &str) {
         self.current_song_id = Some(id.to_string());
         self.is_playing = true;
@@ -168,6 +177,7 @@ pub enum PlaybackAction {
     LoadPlaylist(PlaylistSource, Vec<SongDescription>),
     Next,
     Previous,
+    Queue(SongDescription)
 }
 
 impl Into<AppAction> for PlaybackAction {
@@ -233,6 +243,10 @@ impl UpdatableState for PlaybackState {
             }
             PlaybackAction::LoadPlaylist(source, tracks) => {
                 self.set_playlist(source, tracks);
+                vec![PlaybackEvent::PlaylistChanged]
+            }
+            PlaybackAction::Queue(track) => {
+                self.queue(track);
                 vec![PlaybackEvent::PlaylistChanged]
             }
             PlaybackAction::Seek(pos) => vec![PlaybackEvent::TrackSeeked(pos)],

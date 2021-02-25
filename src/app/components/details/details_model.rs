@@ -1,3 +1,5 @@
+use gio::prelude::*;
+use gio::{ActionMapExt, SimpleAction, SimpleActionGroup};
 use std::cell::Ref;
 use std::ops::Deref;
 use std::rc::Rc;
@@ -21,6 +23,11 @@ impl DetailsModel {
             app_model,
             dispatcher,
         }
+    }
+
+    fn songs(&self) -> Option<impl Deref<Target = Vec<SongDescription>> + '_> {
+        self.app_model
+            .map_state_opt(|s| Some(&s.browser.details_state()?.content.as_ref()?.songs))
     }
 
     pub fn get_album_info(&self) -> Option<impl Deref<Target = AlbumDescription> + '_> {
@@ -83,10 +90,7 @@ impl PlaylistModel for DetailsModel {
     }
 
     fn songs(&self) -> Vec<SongModel> {
-        let songs = self
-            .app_model
-            .map_state_opt(|s| Some(&s.browser.details_state()?.content.as_ref()?.songs));
-        match songs {
+        match self.songs() {
             Some(songs) => songs
                 .iter()
                 .enumerate()
@@ -117,11 +121,48 @@ impl PlaylistModel for DetailsModel {
         )
     }
 
-    fn actions_for(&self, _: String) -> Option<gio::ActionGroup> {
-        None
+    fn actions_for(&self, id: String) -> Option<gio::ActionGroup> {
+        let songs = self.songs()?;
+        let song = songs.iter().find(|&s| &s.id == &id)?.clone();
+        let group = SimpleActionGroup::new();
+
+        for (i, artist) in song.artists.iter().enumerate() {
+            let view_artist = SimpleAction::new(&format!("view_artist_{}", i), None);
+            let dispatcher = self.dispatcher.box_clone();
+            let id = artist.id.clone();
+            view_artist.connect_activate(move |_, _| {
+                dispatcher.dispatch(AppAction::ViewArtist(id.clone()));
+            });
+            group.add_action(&view_artist);
+        }
+
+        let queue = SimpleAction::new("queue", None);
+        let dispatcher = self.dispatcher.box_clone();
+        queue.connect_activate(move |_, _| {
+            dispatcher.dispatch(PlaybackAction::Queue(song.clone()).into());
+        });
+        group.add_action(&queue);
+
+        Some(group.upcast())
     }
 
-    fn menu_for(&self, _: String) -> Option<gio::MenuModel> {
-        None
+    fn menu_for(&self, id: String) -> Option<gio::MenuModel> {
+        let songs = self.songs()?;
+        let song = songs.iter().find(|&s| &s.id == &id)?;
+
+        let menu = gio::Menu::new();
+        let mut i = 0i32;
+        for (_, artist) in song.artists.iter().enumerate() {
+            menu.insert(
+                i,
+                Some(&format!("More from {}", artist.name)),
+                Some(&format!("song.view_artist_{}", i)),
+            );
+            i += 1;
+        }
+
+        menu.insert(i, Some("Queue track"), Some("song.queue"));
+
+        Some(menu.upcast())
     }
 }
